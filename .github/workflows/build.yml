@@ -1,0 +1,52 @@
+name: Build and Test OS Floppy Image
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm mtools qemu-system-x86
+
+      - name: Build bootloader
+        run: |
+          mkdir -p build
+          nasm src/bootloader/boot.asm -f bin -o build/bootloader.bin
+
+      - name: Build kernel
+        run: |
+          nasm src/kernel/main.asm -f bin -o build/kernel.bin
+
+      - name: Create floppy image
+        run: |
+          dd if=/dev/zero of=build/main_floppy.img bs=512 count=2880
+          mformat -i build/main_floppy.img -f 1440 ::
+          dd if=build/bootloader.bin of=build/main_floppy.img conv=notrunc
+          mcopy -i build/main_floppy.img build/kernel.bin ::/kernel.bin
+
+      - name: QEMU boot test and capture output
+        run: |
+          timeout 10s qemu-system-i386 -fda build/main_floppy.img -nographic -no-reboot > build/qemu_output.txt 2>&1 || true
+
+      - name: Upload floppy image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: main_floppy.img
+          path: build/main_floppy.img
+
+      - name: Upload QEMU output artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu_output.txt
+          path: build/qemu_output.txt
