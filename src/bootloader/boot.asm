@@ -80,19 +80,137 @@ main:
     mov ss, ax
     mov sp, 0x7C00      ; stack grows downwards from where we are loaded in memory
 
+
+    mov [ebr_drive_number], dl
+
+    mov ax , 1
+    mov cl, 1
+    mov bx, 0x7E00 ; load address for boot sector
+    call disk_read
     ; print hello world message
     mov si, msg_hello
     call puts
 
+    cli
     hlt
 
+
+floppy_error:
+    mov si, msg_read_failed
+    call puts
+    jmp wait_key_and_reboot
+
+
+wait_key_and_reboot:
+    ; wait for a key press
+    mov ah, 0
+    int 16h
+    jmp 0FFFFh:0
+
 .halt:
+    cli ; disable interrupts, so cpu cannot stop halting
     jmp .halt
 
+; Converts LBA to CHS
+; Params:
+;   - ax: LBA value
+; Returns:
+;   - cx[bits 0-5]: sector number
+;   - cx [bits 6-15]: cylinder
+;   - dh : head
+lba_to_chs: 
+
+    push ax
+    push dx
+
+
+    xor dx, dx
+    div word [bdb_sectors_per_track]
+
+    inc dx 
+    mov cx, dx
+
+    xor dx, dx
+    div word [bdb_heads]
+
+    mov dh, dl 
+    mov ch, al
+    shl ah, 6
+    or cl, ah
+
+    pop ax 
+    mov dl, al
+    pop ax
+    ret
+
+
+; Reads sectors from disk
+; Params:
+;   - ax: LBA value
+;   - cx: number of sectors to read (up to 128)
+;   - dl :drive number
+;   - es:bx: memory address where to store read data
+
+disk_read:
+
+    push ax
+    push bx
+    push cx
+    push dx
+    push di 
+
+    push cx
+    call lba_to_chs
+    pop ax
+    mov ah, 02h
+    mov di, 3  ; retry count, as recommended by the docs
+
+
+.retry:
+    pusha
+    stc ; set carry flag to indicate success or not
+    int 13h
+    jnc .done
+    
+    ; failed
+    popa
+    call disk_reset
+
+    dec di 
+    test di, di
+    jnz .retry
+
+.fail:
+    jmp floppy_error ; if all attempts fail, we stop 
+
+
+.done:
+    popa
+
+    pop ax
+    pop bx
+    pop cx
+    pop dx
+    pop di 
+    ret
+
+
+; Reset disk controller
+; Params:
+;   - dl : drive number
+disk_reset:
+    pusha
+    mov ah, 0
+    stc
+    int 13h
+    jc floppy_error
+    popa
+    ret
 
 
 msg_hello: db 'Hello world!', ENDL, 0
-
+msg_read_failed: db 'Failed to read disk', ENDL, 0
+msg_osname: db 'AMBMT OS', ENDL, 0
 
 times 510-($-$$) db 0
 dw 0AA55h
