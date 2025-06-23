@@ -18,7 +18,7 @@ shell_loop:
     call puts
 
     mov di, input_buffer
-    mov cx, 32
+    mov cx, 31
     call read_line
 
     mov si, input_buffer
@@ -70,36 +70,52 @@ read_line:
     push bx
     push cx
     push dx
+    mov word [read_line_max_len], cx
     xor bx, bx
 .read_char:
+    cmp bx, word [read_line_max_len]
+    jge .done_input_limit
     mov ah, 0
     int 16h
     cmp al, 0x0D
-    je .done
+    je .done_read
     cmp al, 0x08
     je .backspace
+    cmp al, 0x20
+    jb .read_char
+    cmp al, 0x7E
+    ja .read_char
     stosb
     mov ah, 0x0E
     mov bh, 0
     int 10h
     inc bx
-    loop .read_char
-    jmp .done
+    jmp .read_char
 .backspace:
     cmp bx, 0
     je .read_char
     dec di
     dec bx
     mov ah, 0x0E
+    mov al, 0x08
+    int 10h
     mov al, ' '
     int 10h
-    mov ah, 0x0E
     mov al, 0x08
     int 10h
     jmp .read_char
-.done:
+.done_read:
+    mov si, ENDL_chars
+    call puts
+.done_input_limit:
     mov al, 0
     stosb
+    mov si, di
+    sub si, 2
+    cmp byte [si], 0x0D
+    jne .skip_strip_cr
+    mov byte [si], 0
+.skip_strip_cr:
     pop dx
     pop cx
     pop bx
@@ -123,10 +139,12 @@ strcmp:
     ret
 
 msg_kernel_start: db 'Kernel: started!', ENDL, 0
-prompt:      db 'os> ',0
-cmd_hello:   db 'hello',0
-cmd_help:    db 'help',0
-msg_hello:   db 'Hello world!', ENDL, 0
-msg_help:    db 'Type hello or help', ENDL, 0
-msg_unknown: db 'Unknown command', ENDL, 0
-input_buffer: times 32 db 0
+prompt:           db 'os> ',0
+cmd_hello:        db 'hello',0
+cmd_help:         db 'help',0
+msg_hello:        db 'Hello world!', ENDL, 0
+msg_help:         db 'Type hello or help', ENDL, 0
+msg_unknown:      db 'Unknown command', ENDL, 0
+input_buffer:     times 32 db 0
+ENDL_chars:       db ENDL, 0
+read_line_max_len: dw
